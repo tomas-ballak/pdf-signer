@@ -1,6 +1,6 @@
 # Electron PDF Signer
 
-A modern, cross-platform desktop application for applying **Digital Signatures** to PDF documents with visual placement.
+A modern, cross-platform desktop application for applying Digital Signatures to PDF documents with visual placement.
 
 Unlike standard signing tools that only add a visual stamp, this application cryptographically signs the document using your P12/PFX certificate while allowing you to position the visual representation exactly where you need it.
 
@@ -10,19 +10,28 @@ Unlike standard signing tools that only add a visual stamp, this application cry
 
 ## Key Features
 
-- **True Digital Signing:** Uses X.509 certificates (`.p12` or `.pfx`) to cryptographically sign documents, ensuring integrity and authenticity.
+- **True Digital Signing:** Uses X.509 certificates (.p12 or .pfx) to cryptographically sign documents, ensuring integrity and authenticity.
 - **Visual Placement:** Interactively move and resize your signature box to position it exactly where you need it on the PDF page.
-- **Secure Storage:** Utilizes Electron's `safeStorage` API to encrypt and store your certificate passwords in the OS native keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service).
+- **Smart Layout Memory:** Uses the Levenshtein distance algorithm to detect similar filenames. If you sign a document with a similar name (e.g., "Invoice_001" and "Invoice_002"), the app automatically restores your previous signature position and page.
+- **Secure Storage:** Utilizes Electron's safeStorage API to encrypt and store your certificate passwords in the OS native keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service).
 - **Theme Aware:** Fully supports Light, Dark, and Auto (System Sync) color themes.
 - **Multi-language:** Built-in localization for English, Czech (Čeština), and German (Deutsch).
-- **Customization:** Adjustable font sizes and localized date formats (EU, US, ISO, etc.).
 
 ## Tech Stack
 
-- **Core:** [Electron](https://www.electronjs.org/) & [Electron Toolkit](https://electron-toolkit.org/)
-- **Frontend:** [Vue 3](https://vuejs.org/) + TypeScript
-- **PDF Rendering:** [PDF.js](https://mozilla.github.io/pdf.js/)
-- **PDF Manipulation:** [pdf-lib](https://pdf-lib.js.org/) & [@signpdf](https://github.com/vbuch/node-signpdf)
+- **Core:** Electron & Electron Toolkit
+- **Frontend:** Vue 3 + TypeScript
+- **PDF Rendering:** PDF.js
+- **PDF Manipulation:** pdf-lib & @signpdf
+
+## How Smart Positioning Works
+
+The application is designed for productivity with recurring documents (like monthly invoices or contracts).
+
+When you open a PDF, the app calculates the Levenshtein similarity between the current filename and your signing history. If a match with >80% similarity is found, the application will:
+
+1. Automatically scroll to the page you signed last time.
+2. Move the signature box to the exact X/Y coordinates used previously.
 
 ## Getting Started
 
@@ -35,36 +44,36 @@ Unlike standard signing tools that only add a visual stamp, this application cry
 
 1. Clone the repository:
 
-   ```bash
-   git clone https://github.com/your-username/my-pdf-signer.git
-   cd my-pdf-signer
-   ```
+    ```bash
+    git clone https://github.com/your-username/my-pdf-signer.git
+    cd my-pdf-signer
+    ```
 
 2. Install dependencies:
 
-   ```bash
-   npm install
-   ```
+    ```bash
+    npm install
+    ```
 
 3. Run development mode:
 
-   ```bash
-   npm run dev
-   ```
+    ```bash
+    npm run dev
+    ```
 
 4. Build for production:
 
-   ```bash
-   npm run build
-   ```
+    ```bash
+    npm run build
+    ```
 
 ## How to Use
 
 1. **Open PDF:** Click the "Open PDF" button to select a file from your computer.
-2. **Select Certificate:** Load your `.p12` or `.pfx` digital certificate.
+2. **Select Certificate:** Load your .p12 or .pfx digital certificate.
 3. **Authenticate:** Enter your certificate password. You can choose to "Remember Identity" to securely store it for future use.
 4. **Position:** Move the red signature box to the desired location on the page.
-5. **Sign:** Click the "Sign Page" button. The signed PDF will be saved as `filename_signed.pdf`.
+5. **Sign:** Click the "Sign Page" button. The signed PDF will be saved as filename_signed.pdf.
 
 ## Security Note
 
@@ -72,4 +81,4 @@ This application processes files locally on your machine. Your private keys and 
 
 ## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License. See LICENSE for more information.

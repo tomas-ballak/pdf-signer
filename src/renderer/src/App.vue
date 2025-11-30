@@ -1,323 +1,360 @@
 <script setup lang="ts">
-import { ref, reactive, nextTick, computed, shallowRef, onMounted, onUnmounted } from 'vue'
-import { useI18n } from 'vue-i18n'
-import * as pdfjsLib from 'pdfjs-dist'
+import {
+  ref,
+  reactive,
+  nextTick,
+  computed,
+  shallowRef,
+  onMounted,
+  onUnmounted,
+} from "vue";
+import { useI18n } from "vue-i18n";
+import * as pdfjsLib from "pdfjs-dist";
 
 // --- PDF Worker Setup ---
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).toString()
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url,
+).toString();
 
-const { t, locale } = useI18n()
+const { t, locale } = useI18n();
 
 // ============================================
 // --- 0. HELPER: SIMILARITY ALGORITHM      ---
 // ============================================
 const levenshteinDistance = (a: string, b: string): number => {
-  const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i])
-  for (let j = 1; j <= b.length; j++) matrix[0][j] = j
+  const matrix = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) matrix[0][j] = j;
   for (let i = 1; i <= a.length; i++) {
     for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
       matrix[i][j] = Math.min(
         matrix[i - 1][j] + 1,
         matrix[i][j - 1] + 1,
-        matrix[i - 1][j - 1] + cost
-      )
+        matrix[i - 1][j - 1] + cost,
+      );
     }
   }
-  return matrix[a.length][b.length]
-}
+  return matrix[a.length][b.length];
+};
 
 const getSimilarity = (str1: string, str2: string): number => {
-  const longer = str1.length > str2.length ? str1 : str2
-  if (longer.length === 0) return 1.0
-  const distance = levenshteinDistance(str1, str2)
-  return (longer.length - distance) / longer.length
-}
+  const longer = str1.length > str2.length ? str1 : str2;
+  if (longer.length === 0) return 1.0;
+  const distance = levenshteinDistance(str1, str2);
+  return (longer.length - distance) / longer.length;
+};
 
 // ============================================
 // --- 1. THEME LOGIC (Auto / Light / Dark) ---
 // ============================================
-type ThemeMode = 'auto' | 'light' | 'dark'
-const themeMode = ref<ThemeMode>('auto')
-const systemDarkMode = window.matchMedia('(prefers-color-scheme: dark)')
+type ThemeMode = "auto" | "light" | "dark";
+const themeMode = ref<ThemeMode>("auto");
+const systemDarkMode = window.matchMedia("(prefers-color-scheme: dark)");
 
 const calculateIsDark = () => {
-  if (themeMode.value === 'light') return false
-  if (themeMode.value === 'dark') return true
-  return systemDarkMode.matches // 'auto' falls back to system
-}
+  if (themeMode.value === "light") return false;
+  if (themeMode.value === "dark") return true;
+  return systemDarkMode.matches; // 'auto' falls back to system
+};
 
 const applyTheme = () => {
-  const isVisualDark = calculateIsDark()
+  const isVisualDark = calculateIsDark();
 
-  if (isVisualDark) document.documentElement.setAttribute('data-theme', 'dark')
-  else document.documentElement.removeAttribute('data-theme')
+  if (isVisualDark) document.documentElement.setAttribute("data-theme", "dark");
+  else document.documentElement.removeAttribute("data-theme");
 
   // Notify Main Process for native window theme (optional)
   try {
-    const electronMode = themeMode.value === 'auto' ? 'system' : themeMode.value
+    const electronMode =
+      themeMode.value === "auto" ? "system" : themeMode.value;
     // @ts-ignore
-    window.electron.ipcRenderer.invoke('theme:toggle', electronMode).catch(() => {})
+    window.electron.ipcRenderer
+      .invoke("theme:toggle", electronMode)
+      .catch(() => {});
   } catch (e) {
     /* Ignore */
   }
-}
+};
 
 const cycleTheme = () => {
-  if (themeMode.value === 'auto') themeMode.value = 'light'
-  else if (themeMode.value === 'light') themeMode.value = 'dark'
-  else themeMode.value = 'auto'
+  if (themeMode.value === "auto") themeMode.value = "light";
+  else if (themeMode.value === "light") themeMode.value = "dark";
+  else themeMode.value = "auto";
 
-  localStorage.setItem('theme-mode', themeMode.value)
-  applyTheme()
-}
+  localStorage.setItem("theme-mode", themeMode.value);
+  applyTheme();
+};
 
 const themeIcon = computed(() => {
-  if (themeMode.value === 'auto') return '🖥️'
-  if (themeMode.value === 'light') return '☀️'
-  return '🌙'
-})
+  if (themeMode.value === "auto") return "🖥️";
+  if (themeMode.value === "light") return "☀️";
+  return "🌙";
+});
 
 const handleSystemThemeChange = () => {
-  if (themeMode.value === 'auto') applyTheme()
-}
+  if (themeMode.value === "auto") applyTheme();
+};
 
 // ============================================
 // --- 2. APP STATE ---
 // ============================================
-const pdfPath = ref('')
-const certPath = ref('')
-const password = ref('')
-const rememberPassword = ref(false)
+const pdfPath = ref("");
+const certPath = ref("");
+const password = ref("");
+const rememberPassword = ref(false);
 
-const signatureText = ref('Signature')
+const signatureText = ref("Signature");
 
-const fontSize = ref(14)
-const isSigning = ref(false)
-const scale = ref(1.0)
+const fontSize = ref(14);
+const isSigning = ref(false);
+const scale = ref(1.0);
 
-const currentDate = ref(new Date())
-const selectedLocale = ref(navigator.language)
-const includeDate = ref(true)
+const currentDate = ref(new Date());
+const selectedLocale = ref(navigator.language);
+const includeDate = ref(true);
 
 const dateLocaleOptions = computed(() => [
-  { label: t('dateFormats.default'), value: navigator.language },
-  { label: t('dateFormats.czech') + ' (DD.MM.YYYY)', value: 'cs-CZ' },
-  { label: t('dateFormats.us') + ' (MM/DD/YYYY)', value: 'en-US' },
-  { label: t('dateFormats.uk') + ' (DD/MM/YYYY)', value: 'en-GB' },
-  { label: t('dateFormats.iso') + ' (YYYY-MM-DD)', value: 'sv-SE' },
-  { label: t('dateFormats.german') + ' (DD.MM.YYYY)', value: 'de-DE' }
-])
+  { label: t("dateFormats.default"), value: navigator.language },
+  { label: t("dateFormats.czech") + " (DD.MM.YYYY)", value: "cs-CZ" },
+  { label: t("dateFormats.us") + " (MM/DD/YYYY)", value: "en-US" },
+  { label: t("dateFormats.uk") + " (DD/MM/YYYY)", value: "en-GB" },
+  { label: t("dateFormats.iso") + " (YYYY-MM-DD)", value: "sv-SE" },
+  { label: t("dateFormats.german") + " (DD.MM.YYYY)", value: "de-DE" },
+]);
 
 const appLangOptions = [
-  { label: 'English', value: 'en' },
-  { label: 'Čeština', value: 'cs' },
-  { label: 'Deutsch', value: 'de' }
-]
+  { label: "English", value: "en" },
+  { label: "Čeština", value: "cs" },
+  { label: "Deutsch", value: "de" },
+];
 
-const totalPages = ref(0)
-const activePageIndex = ref(0)
-const pdfDoc = shallowRef<any>(null)
+const totalPages = ref(0);
+const activePageIndex = ref(0);
+const pdfDoc = shallowRef<any>(null);
 
-const canvasRefs = ref<Map<number, HTMLCanvasElement>>(new Map())
-const pageContainerRefs = ref<Map<number, HTMLDivElement>>(new Map())
+const canvasRefs = ref<Map<number, HTMLCanvasElement>>(new Map());
+const pageContainerRefs = ref<Map<number, HTMLDivElement>>(new Map());
 
-const box = reactive({ x: 50, y: 50, w: 200, h: 70 })
-const drag = reactive({ active: false, startX: 0, startY: 0, initialBoxX: 0, initialBoxY: 0 })
-const resize = reactive({ active: false, startX: 0, startY: 0, startW: 0, startH: 0 })
+const box = reactive({ x: 50, y: 50, w: 200, h: 70 });
+const drag = reactive({
+  active: false,
+  startX: 0,
+  startY: 0,
+  initialBoxX: 0,
+  initialBoxY: 0,
+});
+const resize = reactive({
+  active: false,
+  startX: 0,
+  startY: 0,
+  startW: 0,
+  startH: 0,
+});
 
-let timer: any
+let timer: any;
 
 onMounted(async () => {
-  timer = setInterval(() => (currentDate.value = new Date()), 1000)
+  timer = setInterval(() => (currentDate.value = new Date()), 1000);
 
-  window.addEventListener('dragover', (e) => e.preventDefault())
-  window.addEventListener('drop', (e) => e.preventDefault())
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => e.preventDefault());
 
   // --- THEME INIT ---
-  systemDarkMode.addEventListener('change', handleSystemThemeChange)
-  const storedMode = localStorage.getItem('theme-mode') as ThemeMode | null
-  const oldKey = localStorage.getItem('user-theme')
+  systemDarkMode.addEventListener("change", handleSystemThemeChange);
+  const storedMode = localStorage.getItem("theme-mode") as ThemeMode | null;
+  const oldKey = localStorage.getItem("user-theme");
 
-  if (storedMode && ['auto', 'light', 'dark'].includes(storedMode)) {
-    themeMode.value = storedMode
+  if (storedMode && ["auto", "light", "dark"].includes(storedMode)) {
+    themeMode.value = storedMode;
   } else if (oldKey) {
-    themeMode.value = oldKey === 'dark' ? 'dark' : 'light'
+    themeMode.value = oldKey === "dark" ? "dark" : "light";
   }
-  applyTheme()
+  applyTheme();
   // ------------------
 
   // Load Previous Signature Text
-  const cachedSig = localStorage.getItem('lastSignatureText')
+  const cachedSig = localStorage.getItem("lastSignatureText");
   if (cachedSig) {
-    signatureText.value = cachedSig
+    signatureText.value = cachedSig;
   }
 
   // Load Secure Credentials
   try {
     // @ts-ignore
-    const savedIdentity = await window.electron.ipcRenderer.invoke('auth:load-credentials')
+    const savedIdentity = await window.electron.ipcRenderer.invoke(
+      "auth:load-credentials",
+    );
     if (savedIdentity) {
-      if (savedIdentity.certPath) certPath.value = savedIdentity.certPath
+      if (savedIdentity.certPath) certPath.value = savedIdentity.certPath;
       if (savedIdentity.password) {
-        password.value = savedIdentity.password
-        rememberPassword.value = true
+        password.value = savedIdentity.password;
+        rememberPassword.value = true;
       }
-      console.log('Identity loaded securely.')
+      console.log("Identity loaded securely.");
     }
   } catch (e) {
-    console.error('Failed to load secure credentials', e)
+    console.error("Failed to load secure credentials", e);
   }
-})
+});
 
 onUnmounted(() => {
-  clearInterval(timer)
-  systemDarkMode.removeEventListener('change', handleSystemThemeChange)
-})
+  clearInterval(timer);
+  systemDarkMode.removeEventListener("change", handleSystemThemeChange);
+});
 
-const pdfName = computed(() => (pdfPath.value ? pdfPath.value.split(/[/\\]/).pop() : null))
-const certName = computed(() => (certPath.value ? certPath.value.split(/[/\\]/).pop() : null))
-const zoomPercent = computed(() => Math.round(scale.value * 100) + '%')
+const pdfName = computed(() =>
+  pdfPath.value ? pdfPath.value.split(/[/\\]/).pop() : null,
+);
+const certName = computed(() =>
+  certPath.value ? certPath.value.split(/[/\\]/).pop() : null,
+);
+const zoomPercent = computed(() => Math.round(scale.value * 100) + "%");
 
 const formattedDateString = computed(() => {
   return new Intl.DateTimeFormat(selectedLocale.value, {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).format(currentDate.value)
-})
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(currentDate.value);
+});
 
 // --- File Selection ---
-const selectFile = async (type: 'pdf' | 'cert') => {
+const selectFile = async (type: "pdf" | "cert") => {
   try {
     // @ts-ignore
-    const path = await window.electron.ipcRenderer.invoke('dialog:openFile', { fileType: type })
-    if (!path) return
+    const path = await window.electron.ipcRenderer.invoke("dialog:openFile", {
+      fileType: type,
+    });
+    if (!path) return;
 
-    if (type === 'pdf') {
-      pdfPath.value = path
+    if (type === "pdf") {
+      pdfPath.value = path;
       // Reset logic handled in loadPdf
-      await loadPdf(path)
+      await loadPdf(path);
     } else {
-      certPath.value = path
-      localStorage.setItem('lastCertPath', path)
+      certPath.value = path;
+      localStorage.setItem("lastCertPath", path);
     }
   } catch (e) {
-    console.error(e)
+    console.error(e);
   }
-}
+};
 
 // --- Load PDF & SMART POSITIONING ---
 const loadPdf = async (path: string) => {
   // 1. Reset & Load
-  activePageIndex.value = 0
-  totalPages.value = 0
-  canvasRefs.value.clear()
-  pdfDoc.value = null
+  activePageIndex.value = 0;
+  totalPages.value = 0;
+  canvasRefs.value.clear();
+  pdfDoc.value = null;
 
   // @ts-ignore
-  const pdfBuffer = await window.electron.ipcRenderer.invoke('read-file-buffer', path)
-  const loadingTask = pdfjsLib.getDocument(pdfBuffer)
-  pdfDoc.value = await loadingTask.promise
-  totalPages.value = pdfDoc.value.numPages
+  const pdfBuffer = await window.electron.ipcRenderer.invoke(
+    "read-file-buffer",
+    path,
+  );
+  const loadingTask = pdfjsLib.getDocument(pdfBuffer);
+  pdfDoc.value = await loadingTask.promise;
+  totalPages.value = pdfDoc.value.numPages;
 
-  await nextTick()
-  renderAllPages()
+  await nextTick();
+  renderAllPages();
 
   // 2. CHECK HISTORY FOR SIMILAR FILENAME
-  const currentFileName = path.split(/[/\\]/).pop() || ''
-  if (!currentFileName) return
+  const currentFileName = path.split(/[/\\]/).pop() || "";
+  if (!currentFileName) return;
 
   try {
-    const historyStr = localStorage.getItem('doc-history')
+    const historyStr = localStorage.getItem("doc-history");
     if (historyStr) {
-      const history = JSON.parse(historyStr)
-      let bestMatch = null
-      let highestScore = 0
+      const history = JSON.parse(historyStr);
+      let bestMatch = null;
+      let highestScore = 0;
 
       // Find best match in history
       for (const entry of history) {
-        if (!entry.name) continue
-        const score = getSimilarity(entry.name, currentFileName)
+        if (!entry.name) continue;
+        const score = getSimilarity(entry.name, currentFileName);
         if (score > highestScore) {
-          highestScore = score
-          bestMatch = entry
+          highestScore = score;
+          bestMatch = entry;
         }
       }
 
       // Threshold: 0.8 means 80% similarity
       if (bestMatch && highestScore > 0.8) {
-        console.log(`Found similar doc (${(highestScore * 100).toFixed(0)}%):`, bestMatch.name)
+        console.log(
+          `Found similar doc (${(highestScore * 100).toFixed(0)}%):`,
+          bestMatch.name,
+        );
 
         // Restore Position
-        box.x = bestMatch.box.x
-        box.y = bestMatch.box.y
-        box.w = bestMatch.box.w
-        box.h = bestMatch.box.h
+        box.x = bestMatch.box.x;
+        box.y = bestMatch.box.y;
+        box.w = bestMatch.box.w;
+        box.h = bestMatch.box.h;
 
         // Restore Page & Scroll
         if (bestMatch.page < totalPages.value) {
-          activePageIndex.value = bestMatch.page
-          await nextTick()
-          const container = pageContainerRefs.value.get(activePageIndex.value)
+          activePageIndex.value = bestMatch.page;
+          await nextTick();
+          const container = pageContainerRefs.value.get(activePageIndex.value);
           if (container) {
-            container.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            container.scrollIntoView({ behavior: "smooth", block: "center" });
           }
         }
       } else {
         // No match? Reset to default position
-        box.x = 50
-        box.y = 50
-        box.w = 200
-        box.h = 70
-        activePageIndex.value = 0
+        box.x = 50;
+        box.y = 50;
+        box.w = 200;
+        box.h = 70;
+        activePageIndex.value = 0;
       }
     }
   } catch (e) {
-    console.error('Error matching history', e)
+    console.error("Error matching history", e);
   }
-}
+};
 
 const renderAllPages = async () => {
-  if (!pdfDoc.value) return
+  if (!pdfDoc.value) return;
   for (let i = 1; i <= totalPages.value; i++) {
-    await renderPage(i)
+    await renderPage(i);
   }
-}
+};
 
 const renderPage = async (pageNum: number) => {
-  const pageIndex = pageNum - 1
-  const canvas = canvasRefs.value.get(pageIndex)
-  if (!canvas || !pdfDoc.value) return
-  const page = await pdfDoc.value.getPage(pageNum)
-  const viewport = page.getViewport({ scale: scale.value })
-  const context = canvas.getContext('2d')
+  const pageIndex = pageNum - 1;
+  const canvas = canvasRefs.value.get(pageIndex);
+  if (!canvas || !pdfDoc.value) return;
+  const page = await pdfDoc.value.getPage(pageNum);
+  const viewport = page.getViewport({ scale: scale.value });
+  const context = canvas.getContext("2d");
   if (context) {
-    canvas.height = viewport.height
-    canvas.width = viewport.width
-    await page.render({ canvasContext: context, viewport: viewport }).promise
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+    await page.render({ canvasContext: context, viewport: viewport }).promise;
   }
-}
+};
 
 // --- Controls ---
 const changeZoom = (delta: number) => {
-  const newScale = Math.round((scale.value + delta) * 100) / 100
+  const newScale = Math.round((scale.value + delta) * 100) / 100;
   if (newScale >= 0.5 && newScale <= 3.0) {
-    scale.value = newScale
-    renderAllPages()
+    scale.value = newScale;
+    renderAllPages();
   }
-}
+};
 
 const changeFontSize = (delta: number) => {
-  const newSize = fontSize.value + delta
-  if (newSize >= 8 && newSize <= 72) fontSize.value = newSize
-}
+  const newSize = fontSize.value + delta;
+  if (newSize >= 8 && newSize <= 72) fontSize.value = newSize;
+};
 
 // --- Math & Interactions ---
 const clampBox = (
@@ -325,113 +362,119 @@ const clampBox = (
   yPoints: number,
   wPoints: number,
   hPoints: number,
-  pageIndex: number
+  pageIndex: number,
 ) => {
-  const canvas = canvasRefs.value.get(pageIndex)
-  if (!canvas) return
-  const limitW = canvas.width / scale.value
-  const limitH = canvas.height / scale.value
-  let newX = xPoints
-  let newY = yPoints
-  if (newX < 0) newX = 0
-  if (newY < 0) newY = 0
-  if (newX + wPoints > limitW) newX = limitW - wPoints
-  if (newY + hPoints > limitH) newY = limitH - hPoints
-  box.x = newX
-  box.y = newY
-}
+  const canvas = canvasRefs.value.get(pageIndex);
+  if (!canvas) return;
+  const limitW = canvas.width / scale.value;
+  const limitH = canvas.height / scale.value;
+  let newX = xPoints;
+  let newY = yPoints;
+  if (newX < 0) newX = 0;
+  if (newY < 0) newY = 0;
+  if (newX + wPoints > limitW) newX = limitW - wPoints;
+  if (newY + hPoints > limitH) newY = limitH - hPoints;
+  box.x = newX;
+  box.y = newY;
+};
 
 const onPageClick = (index: number, e: MouseEvent) => {
-  activePageIndex.value = index
-  const container = pageContainerRefs.value.get(index)
-  if (!container) return
-  const rect = container.getBoundingClientRect()
-  const clickX_px = e.clientX - rect.left
-  const clickY_px = e.clientY - rect.top
+  activePageIndex.value = index;
+  const container = pageContainerRefs.value.get(index);
+  if (!container) return;
+  const rect = container.getBoundingClientRect();
+  const clickX_px = e.clientX - rect.left;
+  const clickY_px = e.clientY - rect.top;
 
-  const offsetX = 20 * scale.value
-  const offsetY = 25 * scale.value
-  const targetX_px = clickX_px - offsetX - (box.w * scale.value) / 2
-  const targetY_px = clickY_px - offsetY - (box.h * scale.value) / 2
+  const offsetX = 20 * scale.value;
+  const offsetY = 25 * scale.value;
+  const targetX_px = clickX_px - offsetX - (box.w * scale.value) / 2;
+  const targetY_px = clickY_px - offsetY - (box.h * scale.value) / 2;
 
-  clampBox(targetX_px / scale.value, targetY_px / scale.value, box.w, box.h, index)
-}
+  clampBox(
+    targetX_px / scale.value,
+    targetY_px / scale.value,
+    box.w,
+    box.h,
+    index,
+  );
+};
 
 const startDrag = (e: MouseEvent) => {
-  e.stopPropagation()
-  drag.active = true
-  drag.startX = e.clientX
-  drag.startY = e.clientY
-  drag.initialBoxX = box.x
-  drag.initialBoxY = box.y
-}
+  e.stopPropagation();
+  drag.active = true;
+  drag.startX = e.clientX;
+  drag.startY = e.clientY;
+  drag.initialBoxX = box.x;
+  drag.initialBoxY = box.y;
+};
 
 const startResize = (e: MouseEvent) => {
-  e.stopPropagation()
-  resize.active = true
-  resize.startX = e.clientX
-  resize.startY = e.clientY
-  resize.startW = box.w
-  resize.startH = box.h
-}
+  e.stopPropagation();
+  resize.active = true;
+  resize.startX = e.clientX;
+  resize.startY = e.clientY;
+  resize.startW = box.w;
+  resize.startH = box.h;
+};
 
 const onMouseMove = (e: MouseEvent) => {
-  if (!drag.active && !resize.active) return
-  const idx = activePageIndex.value
+  if (!drag.active && !resize.active) return;
+  const idx = activePageIndex.value;
 
   if (resize.active) {
-    const deltaX_px = e.clientX - resize.startX
-    const deltaY_px = e.clientY - resize.startY
-    let newW = resize.startW + deltaX_px / scale.value
-    let newH = resize.startH + deltaY_px / scale.value
-    if (newW < 50) newW = 50
-    if (newH < 30) newH = 30
-    box.w = newW
-    box.h = newH
-    return
+    const deltaX_px = e.clientX - resize.startX;
+    const deltaY_px = e.clientY - resize.startY;
+    let newW = resize.startW + deltaX_px / scale.value;
+    let newH = resize.startH + deltaY_px / scale.value;
+    if (newW < 50) newW = 50;
+    if (newH < 30) newH = 30;
+    box.w = newW;
+    box.h = newH;
+    return;
   }
 
   if (drag.active) {
-    const deltaX_px = e.clientX - drag.startX - 20 * scale.value
-    const deltaY_px = e.clientY - drag.startY - 25 * scale.value
-    const newX = drag.initialBoxX + deltaX_px / scale.value
-    const newY = drag.initialBoxY + deltaY_px / scale.value
-    clampBox(newX, newY, box.w, box.h, idx)
+    const deltaX_px = e.clientX - drag.startX - 20 * scale.value;
+    const deltaY_px = e.clientY - drag.startY - 25 * scale.value;
+    const newX = drag.initialBoxX + deltaX_px / scale.value;
+    const newY = drag.initialBoxY + deltaY_px / scale.value;
+    clampBox(newX, newY, box.w, box.h, idx);
   }
-}
+};
 
 const stopInteraction = () => {
-  drag.active = false
-  resize.active = false
-}
+  drag.active = false;
+  resize.active = false;
+};
 const setCanvasRef = (el: any, index: number) => {
-  if (el) canvasRefs.value.set(index, el)
-}
+  if (el) canvasRefs.value.set(index, el);
+};
 const setContainerRef = (el: any, index: number) => {
-  if (el) pageContainerRefs.value.set(index, el)
-}
+  if (el) pageContainerRefs.value.set(index, el);
+};
 
 // --- Sign ---
 const signDocument = async () => {
-  if (!pdfPath.value || !certPath.value) return
-  isSigning.value = true
+  if (!pdfPath.value || !certPath.value) return;
+  isSigning.value = true;
 
-  localStorage.setItem('lastSignatureText', signatureText.value)
+  localStorage.setItem("lastSignatureText", signatureText.value);
 
   if (rememberPassword.value) {
     // @ts-ignore
-    await window.electron.ipcRenderer.invoke('auth:save-credentials', {
+    await window.electron.ipcRenderer.invoke("auth:save-credentials", {
       certPath: certPath.value,
-      password: password.value
-    })
+      password: password.value,
+    });
   } else {
     // @ts-ignore
-    await window.electron.ipcRenderer.invoke('auth:clear-credentials')
+    await window.electron.ipcRenderer.invoke("auth:clear-credentials");
   }
 
   try {
     // @ts-ignore
-    const result = await window.electron.ipcRenderer.invoke('sign-pdf', {
+    const result = await window.electron.ipcRenderer.invoke("sign-pdf", {
       filePath: pdfPath.value,
       certPath: certPath.value,
       password: password.value,
@@ -442,47 +485,47 @@ const signDocument = async () => {
       height: box.h,
       text: signatureText.value,
       fontSize: fontSize.value,
-      dateText: includeDate.value ? formattedDateString.value : ''
-    })
+      dateText: includeDate.value ? formattedDateString.value : "",
+    });
 
     if (result.success) {
-      alert(`${t('alerts.signedSaved')}\n${result.path}`)
+      alert(`${t("alerts.signedSaved")}\n${result.path}`);
 
       // --- SAVE TO HISTORY (FOR SMART POSITIONING) ---
-      const fileName = pdfPath.value.split(/[/\\]/).pop()
+      const fileName = pdfPath.value.split(/[/\\]/).pop();
       if (fileName) {
-        const historyStr = localStorage.getItem('doc-history') || '[]'
-        let history = []
+        const historyStr = localStorage.getItem("doc-history") || "[]";
+        let history = [];
         try {
-          history = JSON.parse(historyStr)
+          history = JSON.parse(historyStr);
         } catch (e) {}
 
         // Remove existing entry for exact filename to avoid duplicates
-        history = history.filter((h: any) => h.name !== fileName)
+        history = history.filter((h: any) => h.name !== fileName);
 
         // Add new entry
         history.push({
           name: fileName,
           box: { ...box }, // Copy object
-          page: activePageIndex.value
-        })
+          page: activePageIndex.value,
+        });
 
         // Keep only last 50 entries
-        if (history.length > 50) history.shift()
+        if (history.length > 50) history.shift();
 
-        localStorage.setItem('doc-history', JSON.stringify(history))
+        localStorage.setItem("doc-history", JSON.stringify(history));
       }
       // ----------------------------------------------
     } else {
-      alert(`${t('alerts.error')} ${result.error}`)
+      alert(`${t("alerts.error")} ${result.error}`);
     }
   } catch (err) {
-    console.error(err)
-    alert(t('alerts.failed'))
+    console.error(err);
+    alert(t("alerts.failed"));
   } finally {
-    isSigning.value = false
+    isSigning.value = false;
   }
-}
+};
 </script>
 
 <template>
@@ -490,7 +533,7 @@ const signDocument = async () => {
     <aside class="sidebar">
       <div class="header-section">
         <div class="header-top">
-          <h2>{{ t('title') }}</h2>
+          <h2>{{ t("title") }}</h2>
           <button class="theme-btn" @click="cycleTheme" :title="themeMode">
             {{ themeIcon }}
           </button>
@@ -498,14 +541,18 @@ const signDocument = async () => {
 
         <div class="control" style="margin-bottom: 10px">
           <select v-model="locale" class="lang-select">
-            <option v-for="lang in appLangOptions" :key="lang.value" :value="lang.value">
+            <option
+              v-for="lang in appLangOptions"
+              :key="lang.value"
+              :value="lang.value"
+            >
               {{ lang.label }}
             </option>
           </select>
         </div>
 
         <div class="tool-row">
-          <label>{{ t('labels.zoom') }}</label>
+          <label>{{ t("labels.zoom") }}</label>
           <div class="tool-controls">
             <button class="tool-btn" @click="changeZoom(-0.25)">➖</button>
             <span class="tool-display">{{ zoomPercent }}</span>
@@ -514,7 +561,7 @@ const signDocument = async () => {
         </div>
 
         <div class="tool-row">
-          <label>{{ t('labels.textSize') }}</label>
+          <label>{{ t("labels.textSize") }}</label>
           <div class="tool-controls">
             <button class="tool-btn" @click="changeFontSize(-2)">A-</button>
             <span class="tool-display">{{ fontSize }}pt</span>
@@ -526,7 +573,9 @@ const signDocument = async () => {
           <div class="file-icon">📄</div>
           <div class="file-details">
             <div class="file-title" :title="pdfPath">{{ pdfName }}</div>
-            <div class="file-meta">{{ totalPages }} {{ t('labels.page') }}s</div>
+            <div class="file-meta">
+              {{ totalPages }} {{ t("labels.page") }}s
+            </div>
           </div>
         </div>
       </div>
@@ -535,38 +584,54 @@ const signDocument = async () => {
 
       <div class="controls-section">
         <div class="control">
-          <button @click="selectFile('pdf')">📂 {{ t('buttons.openPdf') }}</button>
+          <button @click="selectFile('pdf')">
+            📂 {{ t("buttons.openPdf") }}
+          </button>
         </div>
 
         <div class="control">
-          <button @click="selectFile('cert')">🔐 {{ t('buttons.selectCert') }}</button>
+          <button @click="selectFile('cert')">
+            🔐 {{ t("buttons.selectCert") }}
+          </button>
           <div v-if="certName" class="small-text">✓ {{ certName }}</div>
         </div>
         <div class="control">
-          <input type="password" v-model="password" :placeholder="t('labels.certPassword')" />
+          <input
+            type="password"
+            v-model="password"
+            :placeholder="t('labels.certPassword')"
+          />
           <label class="checkbox-label" style="margin-top: 5px">
             <input type="checkbox" v-model="rememberPassword" />
             <span style="font-size: 0.8rem; color: var(--text-secondary)">{{
-              t('labels.rememberIdentity')
+              t("labels.rememberIdentity")
             }}</span>
           </label>
         </div>
 
         <div class="control">
-          <input type="text" v-model="signatureText" :placeholder="t('labels.signatureName')" />
+          <input
+            type="text"
+            v-model="signatureText"
+            :placeholder="t('labels.signatureName')"
+          />
         </div>
 
         <div class="control">
           <label class="checkbox-label">
             <input type="checkbox" v-model="includeDate" />
-            {{ t('labels.includeDate') }}
+            {{ t("labels.includeDate") }}
           </label>
         </div>
 
         <div class="control" v-if="includeDate">
-          <label class="control-label">{{ t('labels.dateFormat') }}:</label>
+          <label class="control-label">{{ t("labels.dateFormat") }}:</label>
           <select v-model="selectedLocale">
-            <option v-for="opt in dateLocaleOptions" :key="opt.value" :value="opt.value">
+            <option
+              v-for="opt in dateLocaleOptions"
+              :key="opt.value"
+              :value="opt.value"
+            >
               {{ opt.label }}
             </option>
           </select>
@@ -575,10 +640,20 @@ const signDocument = async () => {
       </div>
 
       <div class="spacer"></div>
-      <button class="primary" @click="signDocument" :disabled="!pdfPath || !certPath || isSigning">
-        {{ isSigning ? t('buttons.signing') : t('buttons.signPage') + ' ' + (activePageIndex + 1) }}
+      <button
+        class="primary"
+        @click="signDocument"
+        :disabled="!pdfPath || !certPath || isSigning"
+      >
+        {{
+          isSigning
+            ? t("buttons.signing")
+            : t("buttons.signPage") + " " + (activePageIndex + 1)
+        }}
       </button>
-      <div class="small-text" style="margin-bottom: 20px">{{ t('labels.hashAlgo') }}: sha256</div>
+      <div class="small-text" style="margin-bottom: 20px">
+        {{ t("labels.hashAlgo") }}: sha256
+      </div>
     </aside>
 
     <main class="pdf-viewer">
@@ -592,7 +667,7 @@ const signDocument = async () => {
         @click="(e) => onPageClick(index, e)"
         :ref="(el) => setContainerRef(el, index)"
       >
-        <div class="page-number">{{ t('labels.page') }} {{ index + 1 }}</div>
+        <div class="page-number">{{ t("labels.page") }} {{ index + 1 }}</div>
         <canvas :ref="(el) => setCanvasRef(el, index)"></canvas>
 
         <div
@@ -602,7 +677,7 @@ const signDocument = async () => {
             left: box.x * scale + 'px',
             top: box.y * scale + 'px',
             width: box.w * scale + 'px',
-            height: box.h * scale + 'px'
+            height: box.h * scale + 'px',
           }"
           @mousedown.stop="startDrag"
         >
@@ -655,7 +730,7 @@ const signDocument = async () => {
   --shadow-page: rgba(0, 0, 0, 0.5);
 }
 
-[data-theme='dark'] {
+[data-theme="dark"] {
   /* DARK THEME */
   --bg-app: #202020;
   --bg-sidebar: #2d2d2d;
@@ -685,7 +760,7 @@ html {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   background-color: var(--bg-app);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
@@ -854,8 +929,8 @@ html {
   white-space: nowrap;
 }
 
-input[type='text'],
-input[type='password'],
+input[type="text"],
+input[type="password"],
 select {
   padding: 8px;
   border: 1px solid var(--border-input);
@@ -871,7 +946,7 @@ select:focus {
   border-color: var(--accent-primary);
   outline: none;
 }
-input[type='checkbox'] {
+input[type="checkbox"] {
   width: auto;
 }
 
