@@ -225,7 +225,6 @@ const formattedDateString = computed(() => {
 // --- File Selection ---
 const selectFile = async (type: "pdf" | "cert") => {
   try {
-    // @ts-ignore
     const path = await window.electron.ipcRenderer.invoke("dialog:openFile", {
       fileType: type,
     });
@@ -243,7 +242,11 @@ const selectFile = async (type: "pdf" | "cert") => {
     console.error(e);
   }
 };
-
+interface FileHistory {
+  name: string;
+  box: { x: number; y: number; w: number; h: number };
+  page: number;
+}
 // --- Load PDF & SMART POSITIONING ---
 const loadPdf = async (path: string) => {
   // 1. Reset & Load
@@ -252,7 +255,6 @@ const loadPdf = async (path: string) => {
   canvasRefs.value.clear();
   pdfDoc.value = null;
 
-  // @ts-ignore
   const pdfBuffer = await window.electron.ipcRenderer.invoke(
     "read-file-buffer",
     path,
@@ -270,9 +272,10 @@ const loadPdf = async (path: string) => {
 
   try {
     const historyStr = localStorage.getItem("doc-history");
+
     if (historyStr) {
-      const history = JSON.parse(historyStr);
-      let bestMatch = null;
+      const history = JSON.parse(historyStr) as FileHistory[];
+      let bestMatch: FileHistory | null = null;
       let highestScore = 0;
 
       // Find best match in history
@@ -495,10 +498,12 @@ const signDocument = async () => {
       const fileName = pdfPath.value.split(/[/\\]/).pop();
       if (fileName) {
         const historyStr = localStorage.getItem("doc-history") || "[]";
-        let history = [];
+        let history: FileHistory[] = [];
         try {
           history = JSON.parse(historyStr);
-        } catch (e) {}
+        } catch {
+          //pass
+        }
 
         // Remove existing entry for exact filename to avoid duplicates
         history = history.filter((h: any) => h.name !== fileName);
@@ -660,7 +665,7 @@ const signDocument = async () => {
       <div v-if="!pdfPath" class="empty-msg">Select a PDF to view</div>
 
       <div
-        v-for="(n, index) in totalPages"
+        v-for="(_n, index) in totalPages"
         :key="index"
         class="page-wrapper"
         :class="{ active: activePageIndex === index }"
