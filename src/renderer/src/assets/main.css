@@ -1,0 +1,65 @@
+/* src/renderer/src/assets/main.css */
+
+:root {
+  /* --- LIGHT THEME (Your Original Colors) --- */
+  --bg-app: #525659; /* Dark Grey Background */
+  --bg-sidebar: #f9f9f9; /* Light Grey Sidebar */
+  --bg-surface: #ffffff; /* White for inputs/buttons */
+  --bg-tool: #e0e0e0; /* Grey for Zoom tool background */
+
+  --text-primary: #333333;
+  --text-secondary: #555555;
+  --text-muted: #666666;
+
+  --border-color: #dddddd; /* Light border */
+  --border-input: #cccccc; /* Input border */
+
+  --btn-hover: #f0f0f0;
+
+  --accent-primary: #2196f3;
+  --accent-hover: #1976d2;
+
+  --shadow-sidebar: rgba(0, 0, 0, 0.1);
+  --shadow-page: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme='dark'] {
+  /* --- DARK THEME OVERRIDES --- */
+  --bg-app: #202020; /* Very Dark Grey */
+  --bg-sidebar: #2d2d2d; /* Dark Sidebar */
+  --bg-surface: #383838; /* Dark inputs */
+  --bg-tool: #404040; /* Dark tool background */
+
+  --text-primary: #e0e0e0; /* Light Text */
+  --text-secondary: #aaaaaa;
+  --text-muted: #888888;
+
+  --border-color: #444444;
+  --border-input: #555555;
+
+  --btn-hover: #454545;
+
+  --accent-primary: #64b5f6; /* Lighter Blue for visibility */
+  --accent-hover: #42a5f5;
+
+  --shadow-sidebar: rgba(0, 0, 0, 0.5);
+  --shadow-page: rgba(0, 0, 0, 0.8);
+}
+
+body,
+html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
